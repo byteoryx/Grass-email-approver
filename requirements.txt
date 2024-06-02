@@ -1,0 +1,6 @@
+curl_cffi==0.6.0b9
+eth_account==0.11.0
+loguru==0.7.2
+PyYAML==6.0.1
+urllib3==2.2.1
+web3==6.15.1
