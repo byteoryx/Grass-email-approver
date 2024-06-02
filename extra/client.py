@@ -1,10 +1,10 @@
-from curl_cffi import requests
+import requests
 
 from model.constants import USER_AGENT
 
 
 def create_client(proxy: str) -> requests.Session:
-    session = requests.Session(impersonate="chrome120", timeout=60)
+    session = requests.Session()
 
     if proxy:
         session.proxies.update({

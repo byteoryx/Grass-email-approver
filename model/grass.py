@@ -1,5 +1,5 @@
 from eth_account.messages import encode_defunct
-from curl_cffi import requests
+import requests
 from datetime import datetime
 from loguru import logger
 from web3 import Web3
