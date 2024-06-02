@@ -13,10 +13,8 @@ class EmailUtils:
             return 'imap.gmail.com'
         elif email_address.endswith('@mail.ru'):
             return 'imap.mail.ru'
-        elif "@firstmail" in email_address:
-            return 'imap.firstmail.ltd'
         else:
-            raise ValueError('Unsupported email domain.')
+            return 'imap.firstmail.ltd'
 
     @staticmethod
     def get_verification_link(email_address, password) -> str:
@@ -30,12 +28,10 @@ class EmailUtils:
             # Login to the account
             mail.login(email_address, password)
             mail.select('inbox')
-
             status, messages = mail.search(None, 'FROM', 'support@wynd.network')
 
             email_ids = messages[0].split()
             email_ids.reverse()  # Process the newest email first
-
             for email_id in email_ids:
                 status, msg_data = mail.fetch(email_id, '(RFC822)')
                 for response_part in msg_data:
@@ -54,6 +50,7 @@ class EmailUtils:
                                     body = part.get_payload(decode=True)
                                     if body:
                                         body = body.decode()
+
                                         if "https://app.getgrass.io/confirm-email/?token" in body:
                                             return "https://app.getgrass.io/confirm-email/?token" + body.split("https://app.getgrass.io/confirm-email/?token")[1].split('"')[0]
                         else:
