@@ -27,40 +27,54 @@ class EmailUtils:
 
             # Login to the account
             mail.login(email_address, password)
-            mail.select('inbox')
-            status, messages = mail.search(None, 'FROM', 'support@wynd.network')
 
-            email_ids = messages[0].split()
-            email_ids.reverse()  # Process the newest email first
-            for email_id in email_ids:
-                status, msg_data = mail.fetch(email_id, '(RFC822)')
-                for response_part in msg_data:
-                    if isinstance(response_part, tuple):
-                        msg = email.message_from_bytes(response_part[1])
-                        subject, encoding = decode_header(msg['Subject'])[0]
-                        if isinstance(subject, bytes):
-                            subject = subject.decode(encoding if encoding else 'utf-8')
+            # Function to search for the email in a specific mailbox
+            def search_in_mailbox(mailbox_name):
+                mail.select(mailbox_name)
+                status, messages = mail.search(None, 'FROM', 'support@wynd.network')
+                email_ids = messages[0].split()
+                email_ids.reverse()  # Process the newest email first
 
-                        # Print the body of the email
-                        if msg.is_multipart():
-                            for part in msg.walk():
-                                content_type = part.get_content_type()
-                                content_disposition = str(part.get('Content-Disposition'))
-                                if 'attachment' not in content_disposition:
-                                    body = part.get_payload(decode=True)
-                                    if body:
-                                        body = body.decode()
+                for email_id in email_ids:
+                    status, msg_data = mail.fetch(email_id, '(RFC822)')
+                    for response_part in msg_data:
+                        if isinstance(response_part, tuple):
+                            msg = email.message_from_bytes(response_part[1])
+                            subject, encoding = decode_header(msg['Subject'])[0]
+                            if isinstance(subject, bytes):
+                                subject = subject.decode(encoding if encoding else 'utf-8')
 
-                                        if "https://app.getgrass.io/confirm-email/?token" in body:
-                                            return "https://app.getgrass.io/confirm-email/?token" + body.split("https://app.getgrass.io/confirm-email/?token")[1].split('"')[0]
-                        else:
-                            body = msg.get_payload(decode=True)
-                            if body:
-                                body = body.decode()
-                                if "https://app.getgrass.io/confirm-email/?token" in body:
-                                    return "https://app.getgrass.io/confirm-email/?token" + body.split("https://app.getgrass.io/confirm-email/?token")[1].split('"')[0]
+                            # Print the body of the email
+                            if msg.is_multipart():
+                                for part in msg.walk():
+                                    content_type = part.get_content_type()
+                                    content_disposition = str(part.get('Content-Disposition'))
+                                    if 'attachment' not in content_disposition:
+                                        body = part.get_payload(decode=True)
+                                        if body:
+                                            body = body.decode()
+                                            if "https://app.getgrass.io/confirm-email/?token" in body:
+                                                return "https://app.getgrass.io/confirm-email/?token" + body.split("https://app.getgrass.io/confirm-email/?token")[1].split('"')[0]
+                            else:
+                                body = msg.get_payload(decode=True)
+                                if body:
+                                    body = body.decode()
+                                    if "https://app.getgrass.io/confirm-email/?token" in body:
+                                        return "https://app.getgrass.io/confirm-email/?token" + body.split("https://app.getgrass.io/confirm-email/?token")[1].split('"')[0]
+                return None
+
+            # First, search in the inbox
+            verification_link = search_in_mailbox('inbox')
+            if verification_link:
+                return verification_link
+
+            # If not found, search in the spam box
+            verification_link = search_in_mailbox('spam')
+            if verification_link:
+                return verification_link
 
             mail.logout()
             return ""
         except Exception as e:
             return ""
+        
