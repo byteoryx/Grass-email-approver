@@ -30,17 +30,28 @@ class EmailUtils:
 
             # Function to search for the email in a specific mailbox
             def search_in_mailbox(mailbox_name):
-                mail.select(mailbox_name)
+
+                status, _ = mail.select(mailbox_name)
+                if status != 'OK':
+                    print(f"Failed to select mailbox: {mailbox_name}")
+                    return None
+
                 status, messages = mail.search(None, 'FROM', 'support@wynd.network')
+                if status != 'OK':
+                    print(f"Failed to search in mailbox: {mailbox_name}")
+                    return None
+
                 email_ids = messages[0].split()
                 email_ids.reverse()  # Process the newest email first
 
                 for email_id in email_ids:
+
                     status, msg_data = mail.fetch(email_id, '(RFC822)')
                     for response_part in msg_data:
                         if isinstance(response_part, tuple):
                             msg = email.message_from_bytes(response_part[1])
                             subject, encoding = decode_header(msg['Subject'])[0]
+
                             if isinstance(subject, bytes):
                                 subject = subject.decode(encoding if encoding else 'utf-8')
 
@@ -63,15 +74,18 @@ class EmailUtils:
                                         return "https://app.getgrass.io/confirm-email/?token" + body.split("https://app.getgrass.io/confirm-email/?token")[1].split('"')[0]
                 return None
 
-            # First, search in the inbox
             verification_link = search_in_mailbox('inbox')
             if verification_link:
                 return verification_link
 
-            # If not found, search in the spam box
-            verification_link = search_in_mailbox('spam')
-            if verification_link:
-                return verification_link
+            status, mailboxes = mail.list()
+            if status == 'OK':
+                for mailbox in mailboxes:
+                    mailbox_name = mailbox.decode().split(' "/" ')[-1].strip('"')
+                    if 'Spam' in mailbox_name or 'Junk' in mailbox_name or 'spam' in mailbox_name:
+                        verification_link = search_in_mailbox(mailbox_name)
+                        if verification_link:
+                            return verification_link
 
             mail.logout()
             return ""
