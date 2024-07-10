@@ -19,6 +19,8 @@ def retry(attempts: int, return_by_default: any, log_indicator: str | int = "-")
                 else:
                     return result
             logger.error(f"{log_indicator} | All attempts failed, returning default value.")
+            if callable(return_by_default):
+                return return_by_default(*args, **kwargs)  # Call the function with the original arguments
             return return_by_default
 
         return wrapper

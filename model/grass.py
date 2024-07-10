@@ -1,23 +1,30 @@
-from eth_account.messages import encode_defunct
-import requests
+import base64
+import time
 from datetime import datetime
+
+import base58
+import eth_account
+import requests
+from eth_account.messages import encode_defunct
 from loguru import logger
 from web3 import Web3
-import eth_account
-import time
 
 from extra.client import create_client
 from extra.email_utils import EmailUtils
+from extra.reader import get_signing_key
 from model.utils import retry
 
 
 class Grass:
     def __init__(self, account: str, proxy: str, config: dict):
+        self.wallet_verify_link = ""
         self.account = account
         self.private_key = ""
         self.account_email = ""
         self.email_password = ""
         self.account_password = ""
+        self.solana_private_key = ""
+        self.solana_keypair = None
         self.proxy = proxy
         self.config = config
 
@@ -35,18 +42,21 @@ class Grass:
                     self.account_email = self.account.split(":")[0]
                     self.private_key = self.account.split(":")[1]
                     self.account_password = self.account.split(":")[2]
+                    self.solana_private_key = self.account.split(":")[3]
+                    self.solana_keypair = get_signing_key(self.solana_private_key)
                 else:
                     self.account_email = self.account.split(":")[0]
                     self.email_password = self.account.split(":")[1]
                     self.account_password = self.account.split(":")[2]
+                    self.solana_private_key = self.account.split(":")[3]
+                    self.solana_keypair = get_signing_key(self.solana_private_key)
 
                 self.client = create_client(self.proxy)
 
                 return True
             except Exception as err:
                 logger.error(f"{self.account_email} | Failed to init client: {err}")
-
-        return False
+                return False
 
     @retry(5, lambda self: self.__get_log_indicator())
     def login(self) -> bool:
@@ -77,7 +87,7 @@ class Grass:
             return True
         except Exception as err:
             logger.error(f"{self.account_email} | Failed to login Grass: {err}")
-            raise
+            return False
 
     @retry(5, lambda self: self.__get_log_indicator())
     def send_email_verification_link(self) -> bool:
@@ -110,7 +120,7 @@ class Grass:
 
         except Exception as err:
             logger.error(f"{self.account_email} | Failed to get verification link: {err}")
-            raise
+            return False
 
     @retry(5, lambda self: self.__get_log_indicator())
     def verify_email(self) -> bool:
@@ -123,7 +133,7 @@ class Grass:
             if self.email_verify_link == "":
                 for retry in range(15):
                     if "dmail" in self.account:
-                        link = self.get_dmail_code()
+                        link = self._get_dmail_code(email_type="email")
                     else:
                         email_utils = EmailUtils()
                         link = email_utils.get_verification_link(self.account_email, self.email_password)
@@ -187,10 +197,148 @@ class Grass:
 
         except Exception as err:
             logger.error(f"{self.account_email} | Failed to verify email: {err}")
-            raise
+            return False
 
     @retry(5, lambda self: self.__get_log_indicator())
-    def get_dmail_code(self):
+    def send_wallet_verification_link(self) -> bool:
+        try:
+            verified = self._check_if_solana_wallet_verified()
+            if verified:
+                return True
+
+            public_key_str = base64.b64encode(self.solana_keypair.verify_key.encode()).decode('utf-8')
+            wallet_address = base58.b58encode(self.solana_keypair.verify_key.encode()).decode('utf-8')
+
+            signature, timestamp = self.__get_solana_signature()
+
+            headers = {
+                'accept': 'application/json, text/plain, */*',
+                'authorization': self.access_token,
+                'content-type': 'application/json',
+                'origin': 'https://app.getgrass.io',
+                'priority': 'u=1, i',
+                'referer': 'https://app.getgrass.io/',
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-platform': '"Windows"',
+                'sec-fetch-dest': 'empty',
+                'sec-fetch-mode': 'cors',
+                'sec-fetch-site': 'same-site',
+            }
+
+            json_data = {
+                'signedMessage': signature,
+                'publicKey': public_key_str,
+                'walletAddress': wallet_address,
+                'timestamp': timestamp,
+                'isLedger': False,
+            }
+
+            response = self.client.post('https://api.getgrass.io/verifySignedMessage', headers=headers, json=json_data, verify=False)
+
+            if response.status_code >= 400:
+                if "Wallet address is already being used by another user" in response.text:
+                    logger.info(f"{self.account_email} | This wallet is already being used by another user")
+                else:
+                    raise Exception("unable to send solana address")
+
+            headers = {
+                'accept': 'application/json, text/plain, */*',
+                'authorization': self.access_token,
+                'origin': 'https://app.getgrass.io',
+                'priority': 'u=1, i',
+                'referer': 'https://app.getgrass.io/',
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-platform': '"Windows"',
+                'sec-fetch-dest': 'empty',
+                'sec-fetch-mode': 'cors',
+                'sec-fetch-site': 'same-site',
+            }
+
+            response = self.client.post('https://api.getgrass.io/sendWalletAddressEmailVerification', headers=headers, verify=False)
+            if response.status_code >= 400:
+                raise Exception("unable to send solana address verify email")
+
+            return True
+
+        except Exception as err:
+            logger.error(f"{self.account_email} | Failed to send wallet verification link: {err}")
+            return False
+
+    @retry(5, lambda self: self.__get_log_indicator())
+    def verify_solana_wallet(self) -> bool:
+        try:
+            verified = self._check_if_solana_wallet_verified()
+            if verified:
+                return True
+
+            time.sleep(15)
+            if self.wallet_verify_link == "":
+                for retry in range(15):
+                    if "dmail" in self.account:
+                        link = self._get_dmail_code(email_type="wallet")
+                    else:
+                        email_utils = EmailUtils()
+                        link = email_utils.get_solana_address_verification_link(self.account_email, self.email_password)
+
+                    if link == "":
+                        time.sleep(20)
+                        continue
+
+                    self.wallet_verify_link = link
+                    logger.success(f"{self.account_email} | Got email link!")
+                    break
+
+            if self.wallet_verify_link == "":
+                raise Exception("timeout waiting for email link")
+
+            headers = {
+                'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                'priority': 'u=0, i',
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-platform': '"Windows"',
+                'sec-fetch-dest': 'document',
+                'sec-fetch-mode': 'navigate',
+                'sec-fetch-site': 'none',
+                'sec-fetch-user': '?1',
+                'upgrade-insecure-requests': '1',
+            }
+            token = self.email_verify_link.split("token=")[1]
+
+            params = {
+                'token': token,
+            }
+
+            self.client.get('https://app.getgrass.io/confirm-wallet-address', params=params, headers=headers, verify=False)
+
+            headers = {
+                'accept': 'application/json, text/plain, */*',
+                'authorization': self.access_token,
+                'origin': 'https://app.getgrass.io',
+                'priority': 'u=1, i',
+                'referer': 'https://app.getgrass.io/',
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-platform': '"Windows"',
+                'sec-fetch-dest': 'empty',
+                'sec-fetch-mode': 'cors',
+                'sec-fetch-site': 'same-site',
+            }
+
+            self.client.post('https://api.getgrass.io/confirmWalletAddress', headers=headers, verify=False)
+
+            time.sleep(2)
+            verified = self._check_if_solana_wallet_verified()
+
+            if verified:
+                return True
+            else:
+                return False
+
+        except Exception as err:
+            logger.error(f"{self.account_email} | Failed to verify solana wallet: {err}")
+            return False
+
+    @retry(5, lambda self: self.__get_log_indicator())
+    def _get_dmail_code(self, email_type: str):
         try:
             headers = {
                 'accept': 'application/json, text/plain, */*',
@@ -296,8 +444,13 @@ class Grass:
 
             for message in messages:
                 message_content = message['content']['html']
-                if "https://app.getgrass.io/confirm-email/?token" in message_content:
-                    return "https://app.getgrass.io/confirm-email/?token" + message_content.split("https://app.getgrass.io/confirm-email/?token")[1].split('"')[0]
+                if email_type == "email":
+                    if "https://app.getgrass.io/confirm-email/?token" in message_content:
+                        return "https://app.getgrass.io/confirm-email/?token" + message_content.split("https://app.getgrass.io/confirm-email/?token")[1].split('"')[0]
+                else:
+                    if "https://m6zkzl2r.r.us-east-1.awstrack.me/L0/https:%2F%2Fapp.getgrass.io%2Fconfirm-wallet-address%2F%3Ftoken=" in message_content:
+                        return "https://m6zkzl2r.r.us-east-1.awstrack.me/L0/https:%2F%2Fapp.getgrass.io%2Fconfirm-wallet-address%2F%3Ftoken=" + \
+                            message_content.split("https://m6zkzl2r.r.us-east-1.awstrack.me/L0/https:%2F%2Fapp.getgrass.io%2Fconfirm-wallet-address%2F%3Ftoken=")[1].split('"')[0]
 
             raise Exception("no link found in dmail messages")
 
@@ -331,6 +484,40 @@ class Grass:
         except Exception as err:
             logger.error(f"{self.account_email} | Failed to check if email verified: {err}")
             raise
+
+    def _check_if_solana_wallet_verified(self) -> bool:
+        try:
+            headers = {
+                'accept': 'application/json, text/plain, */*',
+                'authorization': self.access_token,
+                'origin': 'https://app.getgrass.io',
+                'priority': 'u=1, i',
+                'referer': 'https://app.getgrass.io/',
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-platform': '"Windows"',
+                'sec-fetch-dest': 'empty',
+                'sec-fetch-mode': 'cors',
+                'sec-fetch-site': 'same-site',
+            }
+
+            response = self.client.get('https://api.getgrass.io/retrieveUser', headers=headers, verify=False)
+
+            if '"isWalletAddressVerified":true' in response.text:
+                logger.success(f"{self.account_email} | Solana wallet verified!")
+                return True
+            else:
+                return False
+
+        except Exception as err:
+            logger.error(f"{self.account_email} | Failed to check if solana wallet verified: {err}")
+            raise
+
+    def __get_solana_signature(self):
+        current_time = int(time.time())
+        message = f"By signing this message you are binding this wallet to all activities associated to your Grass account and agree to our Terms and Conditions (https://www.getgrass.io/terms-and-conditions) and Privacy Policy (https://www.getgrass.io/privacy-policy).\n\nNonce: {str(current_time)}"
+
+        signed_message = self.solana_keypair.sign(message.encode('utf-8'))
+        return base64.b64encode(signed_message.signature).decode('utf-8'), current_time
 
     def __get_signature(self, message: str):
         encoded_msg = encode_defunct(text=message)

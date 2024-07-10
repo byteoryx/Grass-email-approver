@@ -8,9 +8,10 @@ import model
 
 def start():
     def launch_wrapper(index, proxy, account):
-        account_flow(lock, index, proxy, account, config)
+        account_flow(lock, index, proxy, account, config, task)
 
     threads = int(input("How many threads do you want: ").strip())
+    task = int(input("Choose the task:\n\n[1] Approve email\n[2] Connect Solana wallet\n\n>> "))
 
     config = extra.read_config()
 
@@ -39,25 +40,47 @@ def start():
     logger.success("Saved accounts and private keys to a file.")
 
 
-def account_flow(lock: threading.Lock, account_index: int, proxy: str, account: str, config: dict):
+def account_flow(lock: threading.Lock, account_index: int, proxy: str, account: str, config: dict, task: int):
     try:
         grass_instance = model.grass.Grass(account, proxy, config)
 
         ok = wrapper(grass_instance.init_instance, 1)
-        if not ok:
+        if isinstance(ok, bool) and ok:
+            pass
+        else:
             raise Exception("unable to init grass instance")
 
         ok = wrapper(grass_instance.login, 1)
-        if not ok:
-            raise Exception("unable to login")
+        if isinstance(ok, bool) and ok:
+            pass
+        else:
+            raise Exception("login")
 
-        ok = wrapper(grass_instance.send_email_verification_link, 1)
-        if not ok:
-            raise Exception("unable to send email link")
+        if task == 1:
+            ok = wrapper(grass_instance.send_email_verification_link, 1)
+            if isinstance(ok, bool) and ok:
+                pass
+            else:
+                raise Exception("send_email_link")
 
-        ok = wrapper(grass_instance.verify_email, 1)
-        if not ok:
-            raise Exception("unable to verify_email")
+            ok = wrapper(grass_instance.verify_email, 1)
+            if isinstance(ok, bool) and ok:
+                pass
+            else:
+                raise Exception("verify_email")
+
+        elif task == 2:
+            ok = wrapper(grass_instance.send_wallet_verification_link, 1)
+            if isinstance(ok, bool) and ok:
+                pass
+            else:
+                raise Exception("send_wallet_verification_link")
+
+            ok = wrapper(grass_instance.verify_solana_wallet, 1)
+            if isinstance(ok, bool) and ok:
+                pass
+            else:
+                raise Exception("verify_solana_wallet")
 
         with lock:
             with open("data/success_data.txt", "a") as f:
@@ -66,7 +89,7 @@ def account_flow(lock: threading.Lock, account_index: int, proxy: str, account: 
     except Exception as err:
         logger.error(f"{account_index} | Account flow failed: {err}")
         with lock:
-            report_failed_key(account, proxy)
+            report_failed_key(account, proxy, str(err))
 
 
 def wrapper(function, attempts: int, *args, **kwargs):
@@ -82,10 +105,10 @@ def wrapper(function, attempts: int, *args, **kwargs):
     return result
 
 
-def report_failed_key(private_key: str, proxy: str):
+def report_failed_key(private_key: str, proxy: str, reason: str):
     try:
         with open("data/failed_accounts.txt", "a") as file:
-            file.write(private_key + ":" + proxy + "\n")
+            file.write(private_key + ":" + proxy + ":" + reason + "\n")
 
     except Exception as err:
         logger.error(f"Error while reporting failed account: {err}")
