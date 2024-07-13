@@ -1,5 +1,6 @@
 import base64
 import time
+import traceback
 from datetime import datetime
 
 import base58
@@ -302,17 +303,18 @@ class Grass:
                 'sec-fetch-user': '?1',
                 'upgrade-insecure-requests': '1',
             }
-            token = self.email_verify_link.split("token=")[1]
+
+            token = self.wallet_verify_link.split("token=")[1]
 
             params = {
                 'token': token,
             }
 
-            self.client.get('https://app.getgrass.io/confirm-wallet-address', params=params, headers=headers, verify=False)
+            response = self.client.get('https://app.getgrass.io/confirm-wallet-address', params=params, headers=headers, verify=False)
 
             headers = {
                 'accept': 'application/json, text/plain, */*',
-                'authorization': self.access_token,
+                'authorization': token.split("/")[0],
                 'origin': 'https://app.getgrass.io',
                 'priority': 'u=1, i',
                 'referer': 'https://app.getgrass.io/',
@@ -323,7 +325,7 @@ class Grass:
                 'sec-fetch-site': 'same-site',
             }
 
-            self.client.post('https://api.getgrass.io/confirmWalletAddress', headers=headers, verify=False)
+            response = self.client.post('https://api.getgrass.io/confirmWalletAddress', headers=headers, verify=False)
 
             time.sleep(2)
             verified = self._check_if_solana_wallet_verified()
@@ -422,35 +424,67 @@ class Grass:
                 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
             }
 
-            json_data = {
-                'dm_folder': 'inbox',
-                'store_type': 'mail',
-                'pageInfo': {
-                    'page': 1,
-                    'pageSize': 20,
-                },
-            }
+            for _ in range(5):
+                json_data = {
+                    'dm_folder': 'inbox',
+                    'store_type': 'mail',
+                    'pageInfo': {
+                        'page': 1,
+                        'pageSize': 20,
+                    },
+                }
 
-            response = self.client.post(
-                'https://icp.dmail.ai/api/node/v6/dmail/inbox_all/read_by_page_with_content',
-                headers=headers,
-                json=json_data,
-            )
+                response = self.client.post(
+                    'https://icp.dmail.ai/api/node/v6/dmail/inbox_all/read_by_page_with_content',
+                    headers=headers,
+                    json=json_data,
+                )
 
-            if not response.json()['success']:
-                raise Exception("unable to get dmail inbox messages")
+                if not response.json()['success']:
+                    raise Exception("unable to get dmail inbox messages")
 
-            messages = response.json()['data']['list']
+                messages = response.json()['data']['list']
+                for message in messages:
+                    message_content = message['content']['html']
 
-            for message in messages:
-                message_content = message['content']['html']
-                if email_type == "email":
-                    if "https://app.getgrass.io/confirm-email/?token" in message_content:
-                        return "https://app.getgrass.io/confirm-email/?token" + message_content.split("https://app.getgrass.io/confirm-email/?token")[1].split('"')[0]
-                else:
-                    if "https://m6zkzl2r.r.us-east-1.awstrack.me/L0/https:%2F%2Fapp.getgrass.io%2Fconfirm-wallet-address%2F%3Ftoken=" in message_content:
-                        return "https://m6zkzl2r.r.us-east-1.awstrack.me/L0/https:%2F%2Fapp.getgrass.io%2Fconfirm-wallet-address%2F%3Ftoken=" + \
-                            message_content.split("https://m6zkzl2r.r.us-east-1.awstrack.me/L0/https:%2F%2Fapp.getgrass.io%2Fconfirm-wallet-address%2F%3Ftoken=")[1].split('"')[0]
+                    if email_type == "email":
+                        if "https://app.getgrass.io/confirm-email/?token" in message_content:
+                            return "https://app.getgrass.io/confirm-email/?token" + message_content.split("https://app.getgrass.io/confirm-email/?token")[1].split('"')[0]
+                    else:
+                        if "https://m6zkzl2r.r.us-east-1.awstrack.me/L0/https:%2F%2Fapp.getgrass.io%2Fconfirm-wallet-address%2F%3Ftoken=" in message_content:
+                            return "https://m6zkzl2r.r.us-east-1.awstrack.me/L0/https:%2F%2Fapp.getgrass.io%2Fconfirm-wallet-address%2F%3Ftoken=" + \
+                                message_content.split("https://m6zkzl2r.r.us-east-1.awstrack.me/L0/https:%2F%2Fapp.getgrass.io%2Fconfirm-wallet-address%2F%3Ftoken=")[1].split('"')[0]
+
+                json_data = {
+                    'dm_folder': 'junks',
+                    'store_type': 'mail',
+                    'pageInfo': {
+                        'page': 1,
+                        'pageSize': 20,
+                    },
+                }
+
+                response = self.client.post(
+                    'https://icp.dmail.ai/api/node/v6/dmail/inbox_all/read_by_page_with_content',
+                    headers=headers,
+                    json=json_data,
+                )
+
+                if not response.json()['success']:
+                    raise Exception("unable to get dmail inbox messages")
+
+                messages = response.json()['data']['list']
+                for message in messages:
+                    message_content = message['content']['html']
+
+                    if email_type == "email":
+                        if "https://app.getgrass.io/confirm-email/?token" in message_content:
+                            return "https://app.getgrass.io/confirm-email/?token" + message_content.split("https://app.getgrass.io/confirm-email/?token")[1].split('"')[0]
+                    else:
+                        if "https://m6zkzl2r.r.us-east-1.awstrack.me/L0/https:%2F%2Fapp.getgrass.io%2Fconfirm-wallet-address%2F%3Ftoken=" in message_content:
+                            return "https://m6zkzl2r.r.us-east-1.awstrack.me/L0/https:%2F%2Fapp.getgrass.io%2Fconfirm-wallet-address%2F%3Ftoken=" + \
+                                message_content.split("https://m6zkzl2r.r.us-east-1.awstrack.me/L0/https:%2F%2Fapp.getgrass.io%2Fconfirm-wallet-address%2F%3Ftoken=")[1].split('"')[0]
+                time.sleep(12)
 
             raise Exception("no link found in dmail messages")
 
