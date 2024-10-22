@@ -106,7 +106,7 @@ class Grass:
             }
             
             response = self.client.get(
-                'https://api.getgrass.io/zvTlZ8PRouKKGTGNzg4k?input=%7B%22walletAddress%22:%22E8sTkCuENSHnciCZ44v4pGkv2eK7QT6ku6X1SYfUrG3y%22%7D',
+                f'https://api.getgrass.io/zvTlZ8PRouKKGTGNzg4k?input=%7B%22walletAddress%22:%22{wallet_address}%22%7D',
                 headers=headers,
             verify=False)
             
