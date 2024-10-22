@@ -39,19 +39,10 @@ class Grass:
     def init_instance(self):
         for _ in range(5):
             try:
-                if "dmail" in self.account:
-                    self.account_email = self.account.split(":")[0]
-                    self.private_key = self.account.split(":")[1]
-                    self.account_password = self.account.split(":")[2]
-                    self.solana_private_key = self.account.split(":")[3]
-                    self.solana_keypair = get_signing_key(self.solana_private_key)
-                else:
-                    self.account_email = self.account.split(":")[0]
-                    self.email_password = self.account.split(":")[1]
-                    self.account_password = self.account.split(":")[2]
-                    self.solana_private_key = self.account.split(":")[3]
-                    self.solana_keypair = get_signing_key(self.solana_private_key)
 
+                self.solana_private_key = self.account.strip()
+                self.solana_keypair = get_signing_key(self.solana_private_key)
+        
                 self.client = create_client(self.proxy)
 
                 return True
@@ -90,6 +81,53 @@ class Grass:
             logger.error(f"{self.account_email} | Failed to login Grass: {err}")
             return False
 
+    @retry(5, lambda self: self.__get_log_indicator())
+    def check(self) -> int:
+        try:
+            wallet_address = base58.b58encode(self.solana_keypair.verify_key.encode()).decode('utf-8')
+            
+            headers = {
+            'accept': 'application/json, text/plain, */*',
+            'accept-language': 'ru,en-US;q=0.9,en;q=0.8,ru-RU;q=0.7,zh-TW;q=0.6,zh;q=0.5,uk;q=0.4',
+            'origin': 'https://www.grassfoundation.io',
+            'priority': 'u=1, i',
+            'referer': 'https://www.grassfoundation.io/',
+            'sec-ch-ua': '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+            'sec-fetch-dest': 'empty',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-site': 'cross-site',
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+            }
+            
+            params = {
+                "input": f'{{"walletAddress":"{wallet_address}"}}'
+            }
+            
+            response = self.client.get(
+                'https://api.getgrass.io/zvTlZ8PRouKKGTGNzg4k?input=%7B%22walletAddress%22:%22E8sTkCuENSHnciCZ44v4pGkv2eK7QT6ku6X1SYfUrG3y%22%7D',
+                headers=headers,
+            verify=False)
+            
+            if response.json()['result'] == {}:
+                logger.info(f"{wallet_address} | Not eligible :(")
+                return 0
+            
+            else:
+                data = response.json()['result']['data']
+                total_tokens = 0
+                for key, value in data.items():
+                    total_tokens += value
+                    
+                logger.success(f"{wallet_address} | ELIGIBLE!!! Total tokens: {total_tokens}")
+                return total_tokens
+
+        except Exception as err:
+            logger.error(f"{self.account_email} | Failed to check Grass: {err}")
+            
+        return 0
+        
     @retry(5, lambda self: self.__get_log_indicator())
     def send_email_verification_link(self) -> bool:
         try:

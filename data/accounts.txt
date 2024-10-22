@@ -1,2 +1,1 @@
-email:email_pass:grass_account_pass:solana_private_key
-email:metamask_private_key:grass_account_pass:solana_private_key
+solana_private_key
